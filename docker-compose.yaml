@@ -1,0 +1,89 @@
+version: '3.4'
+services:
+  nginx_conf_standard:
+    image: makeshift/nginx-conf-generator
+    build: .
+    restart: always
+    environment:
+      - 'docker_conf={"socketPath": "/var/run/docker.sock"}'
+      - conf_dir=/conf
+      - template=/template.vhost
+      - suffix=standard
+    volumes:
+      - ./conf/:/conf
+      - ./template.vhost:/template.vhost
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  nginx_conf_media:
+    image: makeshift/nginx-conf-generator
+    restart: always
+    environment:
+      - destination=media
+      - 'docker_conf={"host": "media", "port": 2376}'
+      - conf_dir=/conf
+      - template=/template.vhost
+      - suffix=media
+    volumes:
+      - ./conf/:/conf
+      - ./template.vhost:/template.vhost
+
+  letsencrypt:
+    image: adferrand/letsencrypt-dns
+    restart: always
+    environment:
+      - LETSENCRYPT_USER_MAIL=
+      - LEXICON_PROVIDER=cloudflare
+      - LEXICON_CLOUDFLARE_USERNAME=
+      - LEXICON_CLOUDFLARE_TOKEN=
+    volumes:
+      - ./domains.conf:/etc/letsencrypt/domains.conf
+      - ./letsencrypt/:/etc/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  web:
+    image: nginx:alpine
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - web
+    labels:
+      - proxy.notify
+    volumes:
+      - ./conf/:/etc/nginx/conf.d/
+      - ./letsencrypt:/etc/letsencrypt
+      - ./dhparam.pem:/etc/nginx/dhparam.pem
+    depends_on:
+      - nginx_conf_standard
+      - nginx_conf_media
+      - letsencrypt
+
+  market:
+    image: makeshift/eve-market
+    build: .
+    restart: always
+    container_name: "eve-market"
+    labels:
+      - proxy.hosts=thetamarket.makeshift.ninja,thetamarket.local.makeshift.ninja,thetamarket.public.makeshift.ninja
+      - proxy.port=80
+      - proxy.isPublic
+    networks:
+        - web
+
+  portainer:
+    image: portainer/portainer
+    restart: always
+    container_name: "portainer"
+    networks:
+      - web
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+    labels:
+      - proxy.hosts=portainer.makeshift.ninja,portainer.local.makeshift.ninja,portainer.public.makeshift.ninja
+      - proxy.port=9000
+
+networks:
+  web:
+    external: true
