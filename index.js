@@ -42,7 +42,7 @@ async function deleteConfigFiles() {
 
 async function sendSigHup() {
     let notify = (await docker.container.list()).filter(container => "proxy.notify" in container.data.Labels);
-    await Promise.all(notify.map(async container => await container.kill({signal: "SIGHUP"})));
+    await Promise.all(notify.map(async container => await container.kill({signal: "HUP"})));
 }
 
 async function generateAllFiles() {
@@ -72,11 +72,12 @@ async function generateHostFile(container) {
         //Local
         proxy_pass = `http://${container.data.Names[0].split("/")[1]}:${containerPort}`
     }
-    let template = (await fs.readFile(config.template)).toString();
+    let templateFile = "proxy.template" in container.data.Labels ? container.data.labels["proxy.template"] : config.template;
+    let template = (await fs.readFile(templateFile)).toString();
     let vhost = template.interpolate({
         server_names: server_names,
         proxy_pass: proxy_pass,
-        is_public: "proxy.isPublic" in container.data.Labels ? "allow 0.0.0.0/0;" : ""
+        is_public: "proxy.isPublic" in container.data.Labels ? "allow 0.0.0.0/0;" : "",
     })
     console.log(vhost)
     await fs.writeFile(`${path.join(config.confdir, serverNamesArray[0])}.${config.suffix}.conf`, vhost);

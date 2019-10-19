@@ -21,6 +21,7 @@ You can configure containers with the following labels to change their settings:
 * `proxy.hosts` A comma delimited list of URL's for nginx's host list
 * `proxy.port` The container port.
 * `proxy.public` Adds `allow 0.0.0.0/0;` to the template if it has `${is_public}` in it somewhere.
+* `proxy.template` The name of the template to use relative to the config generator.
 
 Notes:
 * If `destination` is omitted, we assume that the nginx container will be able to resolve the container using its name (docker dns) and will use `proxy.port` as given.
