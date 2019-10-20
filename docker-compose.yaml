@@ -12,7 +12,7 @@ services:
     volumes:
       - ./conf/:/conf
       - ./template.vhost:/template.vhost
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker_conf.sock:/var/run/docker.sock
 
   nginx_conf_media:
     image: makeshift/nginx-conf-generator
@@ -38,7 +38,7 @@ services:
     volumes:
       - ./domains.conf:/etc/letsencrypt/domains.conf
       - ./letsencrypt/:/etc/letsencrypt
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker_conf.sock:/var/run/docker.sock
 
   web:
     image: nginx:alpine
@@ -78,7 +78,7 @@ services:
     networks:
       - web
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker_conf.sock:/var/run/docker.sock
       - ./data:/data
     labels:
       - proxy.hosts=portainer.makeshift.ninja,portainer.local.makeshift.ninja,portainer.public.makeshift.ninja

@@ -17,7 +17,7 @@ You can configure the the conf generator with the followng environment variables
 
 You can configure containers with the following labels to change their settings:
 
-* `proxy.notify` Containers with this label will receive a SIGHUP every time we generate config (basically to reload nginx)
+* `proxy.notify` Containers with this label will receive a SIGHUP every time we generate config (basically to reload nginx) **Note: This currently doesn't work if the container is pointed to another host than your webserver, because it'll try to reload anything with the `proxy.notify` label on the target host. I'll probably add a shim or a sidecar to fix that at some point, but for now you can reload nginx with `docker kill web_web_1 -s HUP`.
 * `proxy.hosts` A comma delimited list of URL's for nginx's host list
 * `proxy.port` The container port.
 * `proxy.public` Adds `allow 0.0.0.0/0;` to the template if it has `${is_public}` in it somewhere.

@@ -1,12 +1,12 @@
 {
-  "name": "web",
-  "version": "1.0.0",
-  "description": "",
+  "name": "docker-generate-nginx-conf",
+  "version": "0.1.0",
+  "description": "Generates nginx conf from events on the docker socket",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "author": "",
+  "author": "Connor Bell (Makeshift@Github)",
   "license": "ISC",
   "dependencies": {
     "node-docker-api": "^1.1.22"
