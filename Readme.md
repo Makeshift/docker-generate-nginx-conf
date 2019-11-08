@@ -17,11 +17,16 @@ You can configure the the conf generator with the followng environment variables
 
 You can configure containers with the following labels to change their settings:
 
-* `proxy.notify` Containers with this label will receive a SIGHUP every time we generate config (basically to reload nginx) **Note: This currently doesn't work if the container is pointed to another host than your webserver, because it'll try to reload anything with the `proxy.notify` label on the target host. I'll probably add a shim or a sidecar to fix that at some point, but for now you can reload nginx with `docker kill web_web_1 -s HUP`.
+* `proxy.notify` Containers with this label will receive a SIGHUP every time we generate config (basically to reload nginx) **Note: This currently doesn't work if the container is pointed to another host than your webserver, because it'll try to reload anything with the `proxy.notify` label on the target host. You can either reload nginx manually using `docker kill web_web_1 -s HUP` or use the inotify sidecar detailed below..
 * `proxy.hosts` A comma delimited list of URL's for nginx's host list
 * `proxy.port` The container port.
 * `proxy.public` Adds `allow 0.0.0.0/0;` to the template if it has `${is_public}` in it somewhere.
 * `proxy.template` The name of the template to use relative to the config generator.
+
+### Inotify Sidecar
+If all of your containers are on the same host as the Nginx container, then the config generator will automatically hit nginx with a `SIGHUP` after generating config. _However_, I didn't feel like having to overcomplicate that script to look at local `proxy.notify` targets if their container watch targets are on a different host. Therefore, I also included a little inotify script in the `inotify` directory. This is a simple sidecar container that will `SIGHUP` all local `proxy.notify` containers in the event anything in the `conf` folder changes.
+
+You can see an example of it working in `docker-compose.yaml`.
 
 Notes:
 * If `destination` is omitted, we assume that the nginx container will be able to resolve the container using its name (docker dns) and will use `proxy.port` as given.
@@ -32,3 +37,5 @@ ports:
 labels:
   - proxy.port=9117
 ```
+
+These scripts are extremely specific to my use-cases and are therefore not super customisable. However, they are quite short and easy to understand, so feel free to modify them to your use cases.

@@ -12,7 +12,7 @@ services:
     volumes:
       - ./conf/:/conf
       - ./template.vhost:/template.vhost
-      - /var/run/docker_conf.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
 
   nginx_conf_media:
     image: makeshift/nginx-conf-generator
@@ -27,6 +27,15 @@ services:
       - ./conf/:/conf
       - ./template.vhost:/template.vhost
 
+  nginx_sighup:
+    image: makeshift/nginx_sighup
+    restart: always
+    build: 
+      context: ./inotify/
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./conf/:/watch
+
   letsencrypt:
     image: adferrand/letsencrypt-dns
     restart: always
@@ -38,7 +47,7 @@ services:
     volumes:
       - ./domains.conf:/etc/letsencrypt/domains.conf
       - ./letsencrypt/:/etc/letsencrypt
-      - /var/run/docker_conf.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock
 
   web:
     image: nginx:alpine
@@ -61,7 +70,8 @@ services:
 
   market:
     image: makeshift/eve-market
-    build: .
+    build: 
+      context: /example/
     restart: always
     container_name: "eve-market"
     labels:
