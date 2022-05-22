@@ -1,0 +1,6 @@
+**
+!/inotify/**
+!/templates/**
+!/*.js
+!/package.json
+!/yarn.lock
