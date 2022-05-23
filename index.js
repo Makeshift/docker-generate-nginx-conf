@@ -94,18 +94,26 @@ async function generateHostFile (container) {
     proxyPass = `${container.data.Names[0].split('/')[1]}:${containerPort}`
   }
   const templateFile = 'proxy.template' in container.data.Labels ? container.data.Labels['proxy.template'] : config.template
-  const template = (await fs.readFile(templateFile)).toString()
-  const isPublic = 'proxy.isPublic' in container.data.Labels ? 'allow 0.0.0.0/0;' : ''
-  const vhost = template.interpolate({
-    server_names: serverNames,
-    proxy_pass: proxyPass,
-    is_public: isPublic,
-    single_server_name: serverNamesArray[0],
-    remote_ip: remoteIp
-  })
-  const vhostFile = `${path.join(config.conf_dir, serverNamesArray[0])}.${config.suffix}.conf`
-  console.log(`Writing new vhost file -> ${vhostFile} for ${serverNamesArray[0]} @ ${proxyPass} (Public: ${isPublic})`)
-  await fs.writeFile(vhostFile, vhost)
+  try {
+    const template = (await fs.readFile(templateFile)).toString()
+    const isPublic = 'proxy.isPublic' in container.data.Labels ? 'allow 0.0.0.0/0;' : ''
+    const vhost = template.interpolate({
+      server_names: serverNames,
+      proxy_pass: proxyPass,
+      is_public: isPublic,
+      single_server_name: serverNamesArray[0],
+      remote_ip: remoteIp
+    })
+    const vhostFile = `${path.join(config.conf_dir, serverNamesArray[0])}.${config.suffix}.conf`
+    console.log(`Writing new vhost file -> ${vhostFile} for ${serverNamesArray[0]} @ ${proxyPass} (Public: ${isPublic})`)
+    await fs.writeFile(vhostFile, vhost)
+  } catch (e) {
+    if (e.code === 'ENOENT') {
+      console.log(`Could not find template file ${templateFile} requested by ${serverNamesArray[0]}, skipping...`)
+    } else {
+      console.log(e)
+    }
+  }
 }
 
 // eslint-disable-next-line no-extend-native
