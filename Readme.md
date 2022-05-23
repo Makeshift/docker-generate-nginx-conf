@@ -11,7 +11,7 @@ You can configure the the conf generator with the followng environment variables
 
 * `docker_conf` Is a JSON strinigified object used by [Docker Modem](https://www.npmjs.com/package/docker-modem) to connect to the docker endpoint.
 * `conf_dir` Is the directory in the container that config will be generated in. Probably `/conf` since you can just add a volume.
-* `template` Is the base template we use for each vhost
+* `template` Is the default template we use for each vhost
 * `suffix` Is the suffix we add to each config file so we can have multiple config generators pointed to the same place and they won't interfere
 * `destination` If the docker socket you're generating config for isn't in the same network as nginx (either it's remote or just in a different network) you can set the host here. Eg. `http://<destination>:<port>`. See notes below for more info.
 
