@@ -55,7 +55,8 @@ async function generateAllFiles () {
   const containers = await docker.container.list()
   await Promise.all(containers.map(async container => {
     if ('proxy.hosts' in container.data.Labels) {
-      console.log(`Found container for proxying ${container.data.Names[0]}`)
+      const containerName = container.data.Names[0].split('/')[1]
+      console.log(`Found container for proxying ${containerName}`)
       await generateHostFile(container)
     }
   }))
