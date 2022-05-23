@@ -10,6 +10,7 @@ const fs = require('fs').promises
 const path = require('path')
 const { Docker } = require('node-docker-api')
 const { execSync } = require('child_process')
+let dockerHostIP
 
 const promisifyStream = stream => new Promise((resolve, reject) => {
   stream.on('data', data => ['die', 'start'].includes(JSON.parse(data.toString()).status) ? setTimeout(start, 5000) : '')
@@ -43,8 +44,10 @@ async function deleteConfigFiles () {
 
 async function sendSigHup () {
   const notify = (await docker.container.list()).filter(container => 'proxy.notify' in container.data.Labels)
-  console.log(notify)
-  await Promise.all(notify.map(async container => await container.kill({ signal: 'HUP' })))
+  if (notify.length > 0) {
+    console.log(`Found ${notify.length} containers to SIGHUP: ${notify.map(container => container.data.Names[0]).join(', ')}`)
+    await Promise.all(notify.map(async container => await container.kill({ signal: 'HUP' })))
+  }
 }
 
 async function generateAllFiles () {
@@ -81,23 +84,26 @@ async function generateHostFile (container) {
   } else if (isHostNetworking) {
     // Local host networking
     // Do some hackery to get the host IP
-    const hostIp = execSync("route | awk '/^default/ { print $2 }'").toString().trim()
-    proxyPass = `http://${hostIp}:${containerPort}`
+    if (!dockerHostIP) {
+      dockerHostIP = execSync("route | awk '/^default/ { print $2 }'").toString().trim()
+    }
+    proxyPass = `http://${dockerHostIP}:${containerPort}`
   } else {
     // Local and in same network
     proxyPass = `${container.data.Names[0].split('/')[1]}:${containerPort}`
   }
   const templateFile = 'proxy.template' in container.data.Labels ? container.data.Labels['proxy.template'] : config.template
   const template = (await fs.readFile(templateFile)).toString()
+  const isPublic = 'proxy.isPublic' in container.data.Labels ? 'allow 0.0.0.0/0;' : ''
   const vhost = template.interpolate({
     server_names: serverNames,
     proxy_pass: proxyPass,
-    is_public: 'proxy.isPublic' in container.data.Labels ? 'allow 0.0.0.0/0;' : '',
+    is_public: isPublic,
     single_server_name: serverNamesArray[0],
     remote_ip: remoteIp
   })
   const vhostFile = `${path.join(config.conf_dir, serverNamesArray[0])}.${config.suffix}.conf`
-  console.log(`Writing new vhost file -> ${vhostFile} for ${serverNamesArray[0]} @ ${proxyPass} (Public: ${'proxy.isPublic' in container.data.Labels})`)
+  console.log(`Writing new vhost file -> ${vhostFile} for ${serverNamesArray[0]} @ ${proxyPass} (Public: ${isPublic})`)
   await fs.writeFile(vhostFile, vhost)
 }
 
