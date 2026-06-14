@@ -23,7 +23,7 @@ You can configure the the conf generator with the followng environment variables
 * `DEFAULT_TEMPLATE` Is the default template we use for each vhost
 * `GEN_FILE_SUFFIX` Is the suffix we add to each config file so we can have multiple config generators pointed to the same place and they won't interfere with each other. Defaults to `standard`.
 * `REMOTE_DESTINATION` If the docker socket you're generating config for isn't in the same network as nginx (either it's remote or just in a different network) you can set the host here. Eg. `http://<destination>:<port>`. See notes below for more info.
-* `LOG_LEVEL` The log level for the config generator. Defaults to `info`. Valid levels from least verbose to most: `error`, `warn`, `notice`, `info`, `debug`. See [log](https://www.npmjs.com/package/log) for more info.
+* `LOG_LEVEL` The log level for the config generator. Defaults to `info`. Valid levels from least verbose to most: `fatal`, `error`, `warn`, `info`, `debug`, `trace`. See [pino](https://getpino.io/) for more info.
 
 You can configure containers with the following labels to change their settings:
 
