@@ -1,40 +1,18 @@
-import type { Container } from 'node-docker-api/lib/container'
+import type Docker from 'dockerode'
 
 export interface AppConfig {
-  docker_conf: DockerConnectionOptions
+  docker_conf: Docker.DockerOptions
   conf_dir: string
   suffix: string
   template: string
   destination?: string
 }
 
-export interface DockerConnectionOptions {
-  socketPath?: string
-  host?: string
-  port?: number
-}
-
 export interface DockerEvent {
   status?: string
 }
 
-export interface DockerPort {
-  PrivatePort: number
-  PublicPort?: number
-}
-
-export interface DockerContainerData {
-  Labels: Record<string, string>
-  Names: string[]
-  NetworkSettings: {
-    Networks: Record<string, object>
-  }
-  Ports: DockerPort[]
-}
-
-export type ProxyContainer = Container & {
-  data: DockerContainerData
-}
+export type ProxyContainer = Docker.ContainerInfo
 
 export interface TemplateParams {
   server_names: string

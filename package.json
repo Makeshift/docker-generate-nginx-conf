@@ -17,8 +17,7 @@
   "license": "ISC",
   "dependencies": {
     "dockerode": "^5.0.0",
-    "es6-template-strings": "^2.0.1",
-    "node-docker-api": "^1.1.22"
+    "es6-template-strings": "^2.0.1"
   },
   "private": true,
   "peerDependencies": {
