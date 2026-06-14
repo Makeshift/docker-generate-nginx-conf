@@ -1,4 +1,3 @@
-version: "3.4"
 services:
   # Generates config for containers on the local Docker daemon
   nginx_conf_standard:

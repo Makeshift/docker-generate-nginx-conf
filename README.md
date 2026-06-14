@@ -1,3 +1,11 @@
+# Deprecated
+
+This is a very old, deprecated project that isn't really maintained. Traefik is a much better solution now and I recommend it instead.
+
+This repo is kept around for posterity and because one of my Raspberry Pi's is still running it.
+
+## What is?
+
 A simple little docker container that connects to the docker socket (either locally or remotely) and generates Nginx virtual host files based on a template when a container starts or dies.
 
 Q: Why not Traefik?

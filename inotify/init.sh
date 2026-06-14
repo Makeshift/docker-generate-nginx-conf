@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -ex
 echo "Online and waiting for changes."
 while inotifywait -q -e close_write,moved_to,create /watch; do
     sleep 1
