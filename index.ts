@@ -5,16 +5,16 @@ import path from 'node:path'
 import type { AppConfig, DockerEvent } from './types.ts'
 
 const config: AppConfig = {
-  docker_conf: process.env.docker_conf ? JSON.parse(process.env.docker_conf) : { socketPath: '/var/run/docker_conf.sock' },
-  conf_dir: process.env.conf_dir ?? '/conf',
+  dockerConf: process.env.docker_conf ? JSON.parse(process.env.docker_conf) : { socketPath: '/var/run/docker_conf.sock' },
+  confDir: process.env.conf_dir ?? '/conf',
   suffix: process.env.suffix ?? 'standard',
   template: process.env.template ?? './templates/template.vhost',
   destination: process.env.destination,
 }
 
-const dockerHostIP = 'host.docker.internal'
+const docker = new Docker(config.dockerConf)
 
-const docker = new Docker(config.docker_conf)
+let startTimeout: ReturnType<typeof setTimeout> | null = null
 
 async function watchDockerEvents (): Promise<void> {
   const stream = await docker.getEvents()
@@ -22,31 +22,39 @@ async function watchDockerEvents (): Promise<void> {
     const event = JSON.parse(data.toString()) as DockerEvent
 
     if (event.status && ['die', 'start'].includes(event.status)) {
-      setTimeout(() => {
+      if (startTimeout) clearTimeout(startTimeout)
+      startTimeout = setTimeout(() => {
+        startTimeout = null
         void start().catch(console.error)
       }, 5000)
     }
   })
-  stream.on('error', console.error)
+  stream.on('error', (err) => {
+    console.error('Docker event stream error:', err)
+    process.exit(1)
+  })
 }
 
 async function start (): Promise<void> {
+  const containers = await docker.listContainers()
   await deleteConfigFiles()
-  await generateAllFiles()
-  await sendSigHup()
+  const anyGenerated = await generateAllFiles(containers)
+  if (anyGenerated) {
+    await sendSigHup(containers)
+  }
 }
 
 async function deleteConfigFiles (): Promise<void> {
   const glob = new Glob(`*.${config.suffix}.conf`)
-  const deletes: Array<Promise<void>> = []
-  for await (const file of glob.scan(path.normalize(config.conf_dir))) {
-    deletes.push(Bun.file(path.join(config.conf_dir, file)).delete())
+  const files: string[] = []
+  for await (const file of glob.scan({ cwd: config.confDir, absolute: true })) {
+    files.push(file)
   }
-  await Promise.allSettled(deletes)
+  await Promise.allSettled(files.map(f => Bun.file(f).delete()))
 }
 
-async function sendSigHup (): Promise<void> {
-  const notify = (await docker.listContainers()).filter(container => 'proxy.notify' in container.Labels)
+async function sendSigHup (containers: Docker.ContainerInfo[]): Promise<void> {
+  const notify = containers.filter(container => 'proxy.notify' in container.Labels)
   if (notify.length > 0) {
     console.log(`Found ${notify.length} containers to SIGHUP: ${notify.map(container => container.Names[0]).join(', ')}`)
     await Promise.allSettled(notify.map(async container => {
@@ -55,32 +63,24 @@ async function sendSigHup (): Promise<void> {
   }
 }
 
-async function generateAllFiles (): Promise<void> {
+async function generateAllFiles (containers: Docker.ContainerInfo[]): Promise<boolean> {
   console.log('Getting list of containers')
-  const containers = await docker.listContainers()
-  await Promise.allSettled(containers.map(async container => {
+  const results = await Promise.allSettled(containers.map(async container => {
     if ('proxy.hosts' in container.Labels) {
       const containerName = getContainerName(container)
       console.log(`Found container for proxying ${containerName}`)
       await generateHostFile(container)
+      return true
     }
+    return false
   }))
+  return results.some(r => r.status === 'fulfilled' && r.value)
 }
 
 async function generateHostFile (container: Docker.ContainerInfo): Promise<void> {
-  const proxyHosts = container.Labels['proxy.hosts']
-
-  if (!proxyHosts) {
-    return
-  }
-
+  const proxyHosts = container.Labels['proxy.hosts']!
   const serverNamesArray = proxyHosts.split(',')
-  const singleServerName = serverNamesArray[0]
-
-  if (!singleServerName) {
-    return
-  }
-
+  const singleServerName = serverNamesArray[0]!
   const serverNames = serverNamesArray.join('  ')
   const containerPort = Number(container.Labels['proxy.port']) || 80
   let proxyPass: string
@@ -90,17 +90,17 @@ async function generateHostFile (container: Docker.ContainerInfo): Promise<void>
 
   if (config.destination) {
     const ports = container.Ports.filter(port => port.PrivatePort === containerPort)
-    const hostPort = ports.length > 0 ? ports[0]?.PublicPort : containerPort
+    const hostPort = ports[0]?.PublicPort ?? containerPort
 
     proxyPass = `${config.destination}:${hostPort}`
     remoteIp = config.destination
   } else if (isHostNetworking) {
-    proxyPass = `${dockerHostIP}:${containerPort}`
+    proxyPass = `host.docker.internal:${containerPort}`
   } else {
     proxyPass = `${getContainerName(container)}:${containerPort}`
   }
 
-  const templateFile = 'proxy.template' in container.Labels ? container.Labels['proxy.template'] : config.template
+  const templateFile = container.Labels['proxy.template'] ?? config.template
   try {
     const template = await Bun.file(templateFile).text()
     const isPublic = 'proxy.isPublic' in container.Labels ? 'allow 0.0.0.0/0;' : ''
@@ -111,20 +111,24 @@ async function generateHostFile (container: Docker.ContainerInfo): Promise<void>
       single_server_name: singleServerName,
       remote_ip: remoteIp,
     })
-    const vhostFile = `${path.join(config.conf_dir, singleServerName)}.${config.suffix}.conf`
+    const vhostFile = `${path.join(config.confDir, singleServerName)}.${config.suffix}.conf`
     console.log(`Writing new vhost file -> ${vhostFile} for ${singleServerName} @ ${proxyPass} (Public: ${isPublic})`)
     await Bun.write(vhostFile, vhost)
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      console.log(`Could not find template file ${templateFile} requested by ${singleServerName}, skipping...`)
+      console.error(`Could not find template file ${templateFile} requested by ${singleServerName}, skipping...`)
     } else {
-      console.log(error)
+      console.error(error)
     }
   }
 }
 
 function getContainerName (container: Docker.ContainerInfo): string {
-  return container.Names[0]?.split('/')[1] ?? ''
+  const name = container.Names[0]?.split('/')[1]
+  if (!name) {
+    console.warn(`Container ${container.Id} has no parseable name`)
+  }
+  return name ?? ''
 }
 
 void start().catch(console.error)
