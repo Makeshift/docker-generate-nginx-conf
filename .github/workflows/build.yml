@@ -2,6 +2,8 @@ name: Build
 
 on:
   push:
+    branches: 
+      - main
   pull_request:
   repository_dispatch:
   workflow_dispatch:
@@ -42,7 +44,6 @@ jobs:
           echo "Platforms: ${{ steps.buildx.outputs.platforms }}"
 
       - name: Login to DockerHub
-        if: success() && github.event_name != 'pull_request'
         uses: docker/login-action@v4.2.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -61,11 +62,10 @@ jobs:
             type=ref,event=pr
             type=sha,prefix=
             type=sha,prefix=,format=long
-            # set latest tag for master branch
+            # set latest tag for main branch
             type=raw,value=latest,enable=${{ format('refs/heads/{0}', github.event.repository.default_branch) == github.ref  }}
 
       - name: Push Container (nginx-conf-generator)
-        if: success() && github.event_name != 'pull_request'
         uses: docker/build-push-action@v7.2.0
         with:
           tags: ${{ steps.meta-conf.outputs.tags }}
@@ -88,11 +88,10 @@ jobs:
             type=ref,event=pr
             type=sha,prefix=
             type=sha,prefix=,format=long
-            # set latest tag for master branch
+            # set latest tag for main branch
             type=raw,value=latest,enable=${{ format('refs/heads/{0}', github.event.repository.default_branch) == github.ref  }}
 
       - name: Push Container (nginx-sighup)
-        if: success() && github.event_name != 'pull_request'
         uses: docker/build-push-action@v7.2.0
         with:
           context: inotify/
