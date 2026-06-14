@@ -3,10 +3,10 @@ services:
   nginx_conf_standard:
     image: makeshift27015/nginx-conf-generator
     environment:
-      - 'docker_conf={"socketPath": "/var/run/docker.sock"}'
-      - conf_dir=/conf
-      - template=/template.vhost
-      - suffix=standard
+      - 'DOCKER_CONF={"socketPath": "/var/run/docker.sock"}'
+      - VHOST_PATH=/conf
+      - DEFAULT_TEMPLATE=/template.vhost
+      - GEN_FILE_SUFFIX=standard
     volumes:
       - ./conf/:/conf
       - ./templates/template.vhost:/template.vhost
@@ -16,11 +16,12 @@ services:
   nginx_conf_media:
     image: makeshift27015/nginx-conf-generator
     environment:
-      - destination=media
-      - 'docker_conf={"host": "media", "port": 2376}'
-      - conf_dir=/conf
-      - template=/template.vhost
-      - suffix=media
+      - REMOTE_DESTINATION=media
+      - 'DOCKER_CONF={"host": "media", "port": 2376}'
+      - VHOST_PATH=/conf
+      - DEFAULT_TEMPLATE=/template.vhost
+      - GEN_FILE_SUFFIX=media
+      - LOG_LEVEL=info
     volumes:
       - ./conf/:/conf
       - ./templates/template.vhost:/template.vhost

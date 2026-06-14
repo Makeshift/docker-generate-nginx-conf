@@ -1,24 +1,41 @@
 import { Glob } from 'bun'
 import Docker from 'dockerode'
 import renderTemplate from 'es6-template-strings'
+import log from 'log'
 import path from 'node:path'
 import type { AppConfig, DockerEvent } from './types.ts'
 
+const logger = log.get('docker-nginx-generator')
+
+function resolveEnvVar (defaultValue: string, ...envVarNames: string[]): string
+function resolveEnvVar (defaultValue: string | undefined, ...envVarNames: string[]): string | undefined
+function resolveEnvVar (defaultValue: string | undefined, ...envVarNames: string[]): string | undefined {
+  const value = defaultValue
+  for (const envVarName of envVarNames) {
+    if (process.env[envVarName] !== undefined) {
+      return process.env[envVarName]
+    }
+  }
+  return value
+}
+
 const config: AppConfig = {
-  dockerConf: process.env.docker_conf ? JSON.parse(process.env.docker_conf) : { socketPath: '/var/run/docker_conf.sock' },
-  confDir: process.env.conf_dir ?? '/conf',
-  suffix: process.env.suffix ?? 'standard',
-  template: process.env.template ?? './templates/template.vhost',
-  destination: process.env.destination,
+  dockerConf: JSON.parse(resolveEnvVar('{ "socketPath": "/var/run/docker_conf.sock" }', 'DOCKER_CONF', 'docker_conf')),
+  confDir: resolveEnvVar('/conf', 'VHOST_PATH', 'conf_dir'),
+  suffix: resolveEnvVar('standard', 'GEN_FILE_SUFFIX', 'suffix'),
+  template: resolveEnvVar('./templates/template.vhost', 'DEFAULT_TEMPLATE', 'template'),
+  destination: resolveEnvVar(undefined, 'REMOTE_DESTINATION', 'destination'),
 }
 
 async function connectToDocker(): Promise<Docker> {
   try {
     const client = new Docker(config.dockerConf)
+    logger.debug('Connecting to Docker at %j', config.dockerConf)
     await client.ping()
+    logger.notice('Connected to Docker')
     return client
   } catch (e) {
-    console.error('Failed to connect to Docker:')
+    logger.error('Failed to connect to Docker at %j', config.dockerConf)
     throw e
   }
 }
@@ -36,31 +53,36 @@ async function watchDockerEvents (): Promise<void> {
         const event = JSON.parse(line) as DockerEvent
         return event.status !== undefined && ['die', 'start'].includes(event.status)
       } catch {
-        console.error('Failed to parse Docker event:', line)
+        logger.error('Failed to parse Docker event: %s', line)
         return false
       }
     })
 
     if (shouldRestart) {
-      if (startTimeout) clearTimeout(startTimeout)
+      if (startTimeout) {
+        logger.debug('Debounce reset, delaying restart')
+        clearTimeout(startTimeout)
+      }
       startTimeout = setTimeout(() => {
         startTimeout = null
+        logger.debug('Debounce fired, triggering start')
         void start().catch(console.error)
       }, 5000)
     }
   })
   stream.on('error', (err) => {
-    console.error('Docker event stream error:', err)
+    logger.error('Docker event stream error: %O', err)
     process.exit(1)
   })
 }
 
 async function start (): Promise<void> {
+  logger.debug('Starting config generation')
   const containers = await docker.listContainers()
+  logger.debug('Found %d total containers', containers.length)
   const generatedFiles = await generateAllFiles(containers)
-
+  await cleanOldFiles(generatedFiles.map(file => file.fileName))
   if (generatedFiles.some(file => file.changed)) {
-    await cleanOldFiles(generatedFiles.map(file => file.fileName))
     await sendSigHup(containers)
   }
 }
@@ -68,13 +90,13 @@ async function start (): Promise<void> {
 async function cleanOldFiles (omitFiles: string[]): Promise<void> {
   const glob = new Glob(`*.${config.suffix}.conf`)
   const files = await Array.fromAsync(glob.scan({ cwd: config.confDir, absolute: true }))
-  const deleteFiles = files
-    .filter(fileName => {
-      if (omitFiles.includes(path.basename(fileName))) {
-        return false
-      }
-      return true
-    })
+  const deleteFiles = files.filter(fileName => !omitFiles.includes(fileName))
+
+  if (deleteFiles.length > 0) {
+    logger.notice('Deleting %d stale config file(s): %s', deleteFiles.length, deleteFiles.join(', '))
+  } else {
+    logger.debug('No stale config files to delete')
+  }
 
   await Promise.allSettled(deleteFiles.map(f => Bun.file(f).delete()))
 }
@@ -82,19 +104,21 @@ async function cleanOldFiles (omitFiles: string[]): Promise<void> {
 async function sendSigHup (containers: Docker.ContainerInfo[]): Promise<void> {
   const notify = containers.filter(container => 'proxy.notify' in container.Labels)
   if (notify.length > 0) {
-    console.log(`Found ${notify.length} containers to SIGHUP: ${notify.map(container => container.Names[0]).join(', ')}`)
+    logger.notice('Sending SIGHUP to %d container(s): %s', notify.length, notify.map(container => container.Names[0]).join(', '))
     await Promise.allSettled(notify.map(async container => {
       await docker.getContainer(container.Id).kill({ signal: 'HUP' })
     }))
+  } else {
+    logger.debug('No containers with proxy.notify label, skipping SIGHUP')
   }
 }
 
 async function generateAllFiles (containers: Docker.ContainerInfo[]): Promise<HostGenResult[]> {
-  console.log('Getting list of containers')
+  logger.debug('Scanning %d containers for proxy.hosts label', containers.length)
   const results = await Promise.allSettled(containers.map(async container => {
     if ('proxy.hosts' in container.Labels) {
       const containerName = getContainerName(container)
-      console.log(`Found container for proxying ${containerName}`)
+      logger.debug('Found container for proxying: %s', containerName)
       const fileName = await generateHostFile(container)
       return fileName
     }
@@ -157,17 +181,19 @@ async function generateHostFile (container: Docker.ContainerInfo): Promise<HostG
     const existingVhost = await Bun.file(vhostFilePath).text().catch(() => undefined)
 
     if (existingVhost === renderedVhost) {
-      console.log(`No changes detected for ${vhostFilePath}, skipping write.`)
+      logger.debug('No changes detected for %s, skipping write', vhostFilePath)
       return ret
     }
+
+    logger.notice('Writing vhost %s for %s @ %s (public: %s)', vhostFilePath, singleServerName, proxyPass, isPublic || 'no')
 
     await Bun.write(vhostFilePath, renderedVhost)
     return { ...ret, changed: true }
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      console.error(`Could not find template file ${templateFile} requested by ${singleServerName}, skipping...`)
+      logger.error('Could not find template file %s requested by %s, skipping', templateFile, singleServerName)
     } else {
-      console.error(error)
+      logger.error('%O', error)
     }
     return ret
   }
@@ -175,11 +201,11 @@ async function generateHostFile (container: Docker.ContainerInfo): Promise<HostG
 
 function getContainerName(container: Docker.ContainerInfo): string {
   if (container.Names.length > 1) {
-    console.warn(`Container ${container.Id} has multiple names: ${container.Names.join(', ')}`)
+    logger.warning('Container %s has multiple names: %s', container.Id, container.Names.join(', '))
   }
   const name = container.Names[0]?.split('/')[1]
   if (!name) {
-    console.warn(`Container ${container.Id} has no parseable name`)
+    logger.warning('Container %s has no parseable name', container.Id)
   }
   return name ?? ''
 }
