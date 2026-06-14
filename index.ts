@@ -12,7 +12,18 @@ const config: AppConfig = {
   destination: process.env.destination,
 }
 
-const docker = new Docker(config.dockerConf)
+async function connectToDocker(): Promise<Docker> {
+  try {
+    const client = new Docker(config.dockerConf)
+    await client.ping()
+    return client
+  } catch (e) {
+    console.error('Failed to connect to Docker:')
+    throw e
+  }
+}
+
+const docker = await connectToDocker()
 
 let startTimeout: ReturnType<typeof setTimeout> | null = null
 
