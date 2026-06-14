@@ -20,7 +20,7 @@ function resolveEnvVar (defaultValue: string | undefined, ...envVarNames: string
 }
 
 const config: AppConfig = {
-  dockerConf: JSON.parse(resolveEnvVar('{ "socketPath": "/var/run/docker_conf.sock" }', 'DOCKER_CONF', 'docker_conf')),
+  dockerConf: JSON.parse(resolveEnvVar('{ "socketPath": "/var/run/docker.sock" }', 'DOCKER_CONF', 'docker_conf')),
   confDir: resolveEnvVar('/conf', 'VHOST_PATH', 'conf_dir'),
   suffix: resolveEnvVar('standard', 'GEN_FILE_SUFFIX', 'suffix'),
   template: resolveEnvVar('./templates/template.vhost', 'DEFAULT_TEMPLATE', 'template'),
