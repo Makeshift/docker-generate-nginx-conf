@@ -1,6 +1,4 @@
-.vscode
-conf
-.idea
+dist
 # Logs
 logs
 *.log
