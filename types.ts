@@ -1,4 +1,3 @@
-// AI-generated TypeScript types for the nginx config generator.
 import type { Container } from 'node-docker-api/lib/container'
 
 export interface AppConfig {
