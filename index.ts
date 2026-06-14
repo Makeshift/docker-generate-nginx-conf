@@ -30,9 +30,18 @@ let startTimeout: ReturnType<typeof setTimeout> | null = null
 async function watchDockerEvents (): Promise<void> {
   const stream = await docker.getEvents()
   stream.on('data', (data: Buffer | string) => {
-    const event = JSON.parse(data.toString()) as DockerEvent
+    const shouldRestart = data.toString().split('\n').some(line => {
+      if (!line.trim()) return false
+      try {
+        const event = JSON.parse(line) as DockerEvent
+        return event.status !== undefined && ['die', 'start'].includes(event.status)
+      } catch {
+        console.error('Failed to parse Docker event:', line)
+        return false
+      }
+    })
 
-    if (event.status && ['die', 'start'].includes(event.status)) {
+    if (shouldRestart) {
       if (startTimeout) clearTimeout(startTimeout)
       startTimeout = setTimeout(() => {
         startTimeout = null
