@@ -57,20 +57,26 @@ async function watchDockerEvents (): Promise<void> {
 
 async function start (): Promise<void> {
   const containers = await docker.listContainers()
-  await deleteConfigFiles()
-  const anyGenerated = await generateAllFiles(containers)
-  if (anyGenerated) {
+  const generatedFiles = await generateAllFiles(containers)
+
+  if (generatedFiles.some(file => file.changed)) {
+    await cleanOldFiles(generatedFiles.map(file => file.fileName))
     await sendSigHup(containers)
   }
 }
 
-async function deleteConfigFiles (): Promise<void> {
+async function cleanOldFiles (omitFiles: string[]): Promise<void> {
   const glob = new Glob(`*.${config.suffix}.conf`)
-  const files: string[] = []
-  for await (const file of glob.scan({ cwd: config.confDir, absolute: true })) {
-    files.push(file)
-  }
-  await Promise.allSettled(files.map(f => Bun.file(f).delete()))
+  const files = await Array.fromAsync(glob.scan({ cwd: config.confDir, absolute: true }))
+  const deleteFiles = files
+    .filter(fileName => {
+      if (omitFiles.includes(path.basename(fileName))) {
+        return false
+      }
+      return true
+    })
+
+  await Promise.allSettled(deleteFiles.map(f => Bun.file(f).delete()))
 }
 
 async function sendSigHup (containers: Docker.ContainerInfo[]): Promise<void> {
@@ -83,21 +89,33 @@ async function sendSigHup (containers: Docker.ContainerInfo[]): Promise<void> {
   }
 }
 
-async function generateAllFiles (containers: Docker.ContainerInfo[]): Promise<boolean> {
+async function generateAllFiles (containers: Docker.ContainerInfo[]): Promise<HostGenResult[]> {
   console.log('Getting list of containers')
   const results = await Promise.allSettled(containers.map(async container => {
     if ('proxy.hosts' in container.Labels) {
       const containerName = getContainerName(container)
       console.log(`Found container for proxying ${containerName}`)
-      await generateHostFile(container)
-      return true
+      const fileName = await generateHostFile(container)
+      return fileName
     }
-    return false
   }))
-  return results.some(r => r.status === 'fulfilled' && r.value)
+
+  return results
+    .filter(result => result.status === 'fulfilled' && result.value !== undefined)
+    .map(result => (result as PromiseFulfilledResult<HostGenResult>).value)
 }
 
-async function generateHostFile (container: Docker.ContainerInfo): Promise<void> {
+interface HostGenResult {
+  fileName: string
+  changed: boolean
+}
+
+/**
+ * Writes a vhost file for the given container based on its labels and the provided template.
+ * @param container The Docker container information.
+ * @returns HostGenResult
+ */
+async function generateHostFile (container: Docker.ContainerInfo): Promise<HostGenResult> {
   const proxyHosts = container.Labels['proxy.hosts']!
   const serverNamesArray = proxyHosts.split(',')
   const singleServerName = serverNamesArray[0]!
@@ -121,29 +139,44 @@ async function generateHostFile (container: Docker.ContainerInfo): Promise<void>
   }
 
   const templateFile = container.Labels['proxy.template'] ?? config.template
+  const vhostFilePath = `${path.join(config.confDir, singleServerName)}.${config.suffix}.conf`
+  const ret = { fileName: vhostFilePath, changed: false }
   try {
     const template = await Bun.file(templateFile).text()
     const isPublic = 'proxy.isPublic' in container.Labels ? 'allow 0.0.0.0/0;' : ''
-    const vhost = renderTemplate(template, {
+    const renderedVhost = renderTemplate(template, {
       server_names: serverNames,
       proxy_pass: proxyPass,
       is_public: isPublic,
       single_server_name: singleServerName,
       remote_ip: remoteIp,
     })
-    const vhostFile = `${path.join(config.confDir, singleServerName)}.${config.suffix}.conf`
-    console.log(`Writing new vhost file -> ${vhostFile} for ${singleServerName} @ ${proxyPass} (Public: ${isPublic})`)
-    await Bun.write(vhostFile, vhost)
+
+    console.log(`Writing new vhost file -> ${vhostFilePath} for ${singleServerName} @ ${proxyPass} (Public: ${isPublic})`)
+
+    const existingVhost = await Bun.file(vhostFilePath).text().catch(() => undefined)
+
+    if (existingVhost === renderedVhost) {
+      console.log(`No changes detected for ${vhostFilePath}, skipping write.`)
+      return ret
+    }
+
+    await Bun.write(vhostFilePath, renderedVhost)
+    return { ...ret, changed: true }
   } catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
       console.error(`Could not find template file ${templateFile} requested by ${singleServerName}, skipping...`)
     } else {
       console.error(error)
     }
+    return ret
   }
 }
 
-function getContainerName (container: Docker.ContainerInfo): string {
+function getContainerName(container: Docker.ContainerInfo): string {
+  if (container.Names.length > 1) {
+    console.warn(`Container ${container.Id} has multiple names: ${container.Names.join(', ')}`)
+  }
   const name = container.Names[0]?.split('/')[1]
   if (!name) {
     console.warn(`Container ${container.Id} has no parseable name`)
