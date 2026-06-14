@@ -1,6 +1,6 @@
 {
   "name": "docker-generate-nginx-conf",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Generates nginx conf from events on the docker socket",
   "main": "index.ts",
   "type": "module",
